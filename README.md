@@ -98,13 +98,10 @@ Puedes empaquetar y ejecutar la aplicación dentro de un contenedor Docker pasan
 
 La aplicación está preparada para ejecutarse en entornos serverless basados en contenedores como **Google Cloud Run**.
 
-Despliega el servicio directamente desde el código fuente pasando la variable `DATABASE_URL` a través del parámetro `--set-env-vars` o configurando esto como secreto en Google Cloud:
+Despliega el servicio directamente desde el código fuente pasando la variable `DATABASE_URL` a través del parámetro `--set-env-vars` o configurándolo como secreto o variable de entorno. Un ejemplo de comando es:
 
 ```bash
-gcloud run deploy biosenda \
-  --region=europe-west1 \
-  --source=. \
-  --allow-unauthenticated \
+gcloud run deploy biosenda --region=europe-west1 --source=. --allow-unauthenticated \
   --set-env-vars DATABASE_URL="mysql+pymysql://usuario:password@host:3306/biosenda"
 ```
 
