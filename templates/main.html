@@ -163,6 +163,19 @@
       background-color: #2d5e33;
     }
 
+    .controls .descripcion-input:disabled {
+      background-color: #f1f5f2;
+      color: #6c7d71;
+      border: 1px dashed #a0d3b4;
+      cursor: not-allowed;
+    }
+
+    .controls .descripcion-btn:disabled {
+      background-color: #8fb898;
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+
     .previsualizacion {
       flex: 1 1 0;
       display: none;
@@ -408,18 +421,23 @@
       </div>
 
         <div class="controls">
-  
-    <textarea
-      id="prompt-input"
-      class="descripcion-input"
-      placeholder=" Personaliza las descripciones de las especies. Por ejemplo:
+          <textarea
+            id="prompt-input"
+            class="descripcion-input"
+            {% if not personalizacion_habilitada %}
+            disabled
+            readonly
+            placeholder="La personalización de descaripciones no está configurada."
+            {% else %}
+            placeholder=" Personaliza las descripciones de las especies. Por ejemplo:
     - Haz las descripciones con un tono más científico.
     - Incluye en qué provincias se pueden ver las especies."
-      maxlength="300"
-      rows="4"
-    ></textarea>
-    <button id="btn-generar" class="descripcion-btn">Generar</button>
-  </div>
+            {% endif %}
+            maxlength="300"
+            rows="4"
+          ></textarea>
+          <button id="btn-generar" class="descripcion-btn" {% if not personalizacion_habilitada %}disabled title="La personalización de descaripciones no está configurada."{% endif %}>Generar</button>
+        </div>
 
     <script>
     // Caché simple para especies por ruta
@@ -577,7 +595,8 @@
         });
       });
 
-    document.getElementById('btn-generar').addEventListener('click', async () => {
+    document.getElementById('btn-generar').addEventListener('click', async function() {
+      if (this.disabled) return;
       const prompt = document.getElementById('prompt-input').value.trim();
       const spinner = document.getElementById('spinner');
       const visor = document.getElementById('visor-pdf');

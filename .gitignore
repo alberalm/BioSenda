@@ -7,5 +7,4 @@ __pycache__/
 *.py[cod]
 .env
 .env.*
-!.env.example
-connections/llm_connection.py
+!.env.example

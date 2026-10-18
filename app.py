@@ -18,20 +18,10 @@ import ipaddress
 import sys
 from dotenv import load_dotenv
 
-try:
-    from connections.db_connection import create_db_engine
-    load_dotenv()
-except Exception:
-    print("No database connection defined, exiting...")
-    exit(1)
-try:
-    from connections.llm_connection import send_description_prompt, send_text2sql_prompt
-except Exception:
-    print("No models defined, personalising descriptions is not available and will not work.")
-    def send_description_prompt(prompt):
-        return prompt
-    def send_text2sql_prompt(prompt):
-        return "SELECT Null"
+load_dotenv()
+
+from connections.db_connection import create_db_engine
+from connections.llm_connection import send_description_prompt, send_text2sql_prompt, personalizacion_habilitada
 
 engine = create_db_engine()
 
@@ -87,11 +77,14 @@ async def personalizar_especie(especie, descripcion_cientifica, query, prompt, i
 
 @flask_app.route('/')
 def index():
-    return render_template('main.html')
+    return render_template('main.html', personalizacion_habilitada=personalizacion_habilitada())
 
 
 @flask_app.route('/personalizar_descripciones', methods=['POST'])
 async def personalizar_descripciones():
+    if not personalizacion_habilitada():
+        return jsonify({'error': 'La personalización de descaripciones no está configurada.'}), 400
+
     data = request.get_json(force=True) or {}
     prompt = data.get('prompt', '')
     especies  = data.get('especies', [])
