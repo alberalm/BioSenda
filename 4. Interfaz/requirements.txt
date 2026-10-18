@@ -1,9 +1,0 @@
-flask 
-pandas 
-openpyxl
-sqlalchemy 
-numpy 
-httpx
-pillow
-fpdf2 
-sentencepiece

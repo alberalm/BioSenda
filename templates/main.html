@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8">
+    <title>BioSenda</title>
+    <link rel="icon" href="{{ url_for('static', filename='logo.png') }}" type="image/png">
+    <style>
+    html, body {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden; /* desactiva scroll de página */
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f0f7f4;
+      color: #2d3e2f;
+    }
+
+    header {
+      height: 80px;               /* altura fija para cálculo */
+      background-color: #3a7d44;
+      color: white;
+      padding: 20px;
+      text-align: center;
+      font-size: 1.8rem;
+      font-weight: bold;
+      box-sizing: border-box;
+    }
+
+    .filtros {
+      height: 80px;               /* altura fija para cálculo */
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 20px;
+      background-color: #d9f2e6;
+      border-bottom: 2px solid #a0d3b4;
+      justify-content: center;
+      box-sizing: border-box;
+    }
+
+    select, input[type="date"] {
+      padding: 8px;
+      border: 1px solid #a0d3b4;
+      border-radius: 6px;
+      background-color: #f5fff8;
+      font-size: 1rem;
+    }
+
+    .taxones {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .taxones label {
+      background-color: #e1f4ea;
+      border: 1px solid #a0d3b4;
+      border-radius: 6px;
+      padding: 5px 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .contenido {
+      display: flex;
+      gap: 20px;
+      padding: 20px;
+      height: calc(100vh - 80px - 80px); /* resta header + filtros */
+      box-sizing: border-box;
+      align-items: stretch;
+      min-height: 0; /* para permitir overflow interno en flex */
+    }
+
+    table {
+      flex: 1 1 0;
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      background-color: white;
+      border-collapse: collapse;
+      border-radius: 10px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+      min-height: 0;
+    }
+
+    thead {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+    }
+
+    tbody {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      overflow-y: auto;
+      width: 100%;
+    }
+
+    tbody tr {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+    }
+
+    th, td {
+      padding: 6px 10px;
+      text-align: left;
+      border-bottom: 1px solid #e0eee6;
+    }
+
+    th {
+      background-color: #a0d3b4;
+      color: #2d3e2f;
+      font-weight: bold;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    tr:hover {
+      background-color: #e8f8e4;
+      cursor: pointer;
+    }
+
+    .controls {
+    display: flex;
+    align-items: center;
+    /* ya no necesitamos space-between */
+    /* justify-content: space-between; */
+    margin-bottom: 10px;
+    flex-shrink: 0;
+  }
+
+  .controls .descripcion-input {
+    /* que ocupe todo el hueco sobrante */
+    flex: 1;
+    /* altura fija a 3 líneas */
+    height: 4.2em;
+    line-height: 1.2em;
+    overflow-y: auto;
+    resize: none;
+    box-sizing: border-box;
+    /* separa un poco del botón */
+    margin-right: 12px;
+  }
+
+    .controls .descripcion-btn {
+      flex: 0 0 auto;
+      padding: 6px 12px;
+      background-color: #3a7d44;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .controls .descripcion-btn:hover {
+      background-color: #2d5e33;
+    }
+
+    .controls .descripcion-input:disabled {
+      background-color: #f1f5f2;
+      color: #6c7d71;
+      border: 1px dashed #a0d3b4;
+      cursor: not-allowed;
+    }
+
+    .controls .descripcion-btn:disabled {
+      background-color: #8fb898;
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+
+    .previsualizacion {
+      flex: 1 1 0;
+      display: none;
+      flex-direction: column;
+      justify-content: space-between;
+      border: 1px solid #a0d3b4;
+      border-radius: 10px;
+      padding: 16px;
+      background-color: white;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+      min-height: 0;
+    }
+
+    .espacio-pdf {
+      height: 90%;
+      background-color: #f0f7f4;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #7aa893;
+      margin-bottom: 15px;
+      border-radius: 6px;
+      border: 2px dashed #a0d3b4;
+    }
+
+    .dropdown-taxones {
+      position: relative;
+      display: inline-block;
+    }
+
+    .dropbtn {
+      padding: 8px;
+      border: 1px solid #a0d3b4;
+      border-radius: 6px;
+      background-color: #f5fff8;
+      font-size: 1rem;
+      color: #2d3e2f;
+      min-width: 180px;
+      font-family: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .dropdown-content {
+      display: none;
+      position: absolute;
+      background-color: #ffffff;
+      min-width: 200px;
+      box-shadow: 0px 4px 8px rgba(0,0,0,0.1);
+      border: 1px solid #a0d3b4;
+      border-radius: 8px;
+      padding: 10px;
+      z-index: 1000;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .dropdown-content label {
+      display: flex;
+      align-items: center;
+      font-size: 0.95rem;
+      gap: 6px;
+      margin-bottom: 4px;
+      cursor: pointer;
+    }
+
+    .dropdown-taxones:hover .dropdown-content {
+      display: flex;
+    }
+
+    .botones {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    button {
+      padding: 10px 18px;
+      background-color: #3a7d44;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-weight: bold;
+      transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #2d5e33;
+    }
+
+    .contenedor-mapa {
+      width: 45%;
+      text-align: center;
+    }
+
+    .mapa-img {
+      width: 100%;
+      height: auto;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      border: 2px solid #a0d3b4;
+    }
+
+    /* Spinner centrado dentro de .espacio-pdf */
+  .espacio-pdf {
+    position: relative; /* necesario para posicionar el spinner */
+  }
+
+  .spinner {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 40px; height: 40px;
+    margin: -20px 0 0 -20px;
+    border: 4px solid rgba(0,0,0,0.1);
+    border-top: 4px solid #3a7d44;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    z-index: 10;
+    display: none; /* hidden por defecto */
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Estado desactivado para toda la UI */
+  .disabled {
+    pointer-events: none !important;
+    opacity: 0.5;
+  }
+  
+  </style>
+  </head>
+
+  <body>
+    <header>
+      <img src="{{ url_for('static', filename='logoblanco.png') }}" 
+          alt="BioSenda logo" 
+          style="height:100%; max-height:40px; vertical-align:middle; margin-right:8px;">
+      <span style="vertical-align:middle;">BioSenda</span>
+    </header>
+    <div class="filtros">
+      
+      <div class="dropdown-taxones">
+        <button type="button" class="dropbtn">Grupos Taxonómicos ⮟</button>
+        <div class="dropdown-content">
+          <label><input type="checkbox" value="peces"> Peces</label>
+          <label><input type="checkbox" value="Mamíferos"> Mamíferos</label>
+          <label><input type="checkbox" value="Hongos"> Hongos</label>
+          <label><input type="checkbox" value="Plantas_vasculares"> Plantas vasculares</label>
+          <label><input type="checkbox" value="Plantas_no_vasculares"> Plantas no vasculares</label>
+          <label><input type="checkbox" value="Aves"> Aves</label>
+          <label><input type="checkbox" value="Invertebrados"> Invertebrados</label>
+          <label><input type="checkbox" value="anfibios"> Anfibios</label>
+          <label><input type="checkbox" value="reptiles"> Reptiles</label>
+        </div>
+      </div>
+      
+      <select id="provincia-selector" name="provincia">
+        <option value="">Provincia</option>
+        <option value="Araba/Álava">Álava</option>
+        <option value="albacete">Albacete</option>
+        <option value="Alacant/Alicante">Alicante</option>
+        <option value="almería">Almería</option>
+        <option value="asturias">Asturias</option>
+        <option value="Ávila">Ávila</option>
+        <option value="badajoz">Badajoz</option>
+        <option value="barcelona">Barcelona</option>
+        <option value="Bizkaia">Bizkaia</option>
+        <option value="burgos">Burgos</option>
+        <option value="cáceres">Cáceres</option>
+        <option value="cádiz">Cádiz</option>
+        <option value="cantabria">Cantabria</option>
+        <option value="Castelló/Castellón">Castellón</option>
+        <option value="ceuta">Ceuta</option>
+        <option value="Ciudad Real">Ciudad Real</option>
+        <option value="Córdoba">Córdoba</option>
+        <option value="cuenca">Cuenca</option>
+        <option value="girona">Girona</option>
+        <option value="granada">Granada</option>
+        <option value="guadalajara">Guadalajara</option>
+        <option value="Gipuzkoa">Guipúzcoa</option>
+        <option value="huelva">Huelva</option>
+        <option value="huesca">Huesca</option>
+        <option value="Illes Balears">Illes Balears</option>
+        <option value="jaén">Jaén</option>
+        <option value="a coruña">A Coruña</option>
+        <option value="la rioja">La Rioja</option>
+        <option value="las palmas">Las Palmas</option>
+        <option value="león">León</option>
+        <option value="lleida">Lleida</option>
+        <option value="lugo">Lugo</option>
+        <option value="madrid">Madrid</option>
+        <option value="málaga">Málaga</option>
+        <option value="melilla">Melilla</option>
+        <option value="murcia">Murcia</option>
+        <option value="navarra">Navarra</option>
+        <option value="ourense">Ourense</option>
+        <option value="palencia">Palencia</option>
+        <option value="pontevedra">Pontevedra</option>
+        <option value="salamanca">Salamanca</option>
+        <option value="san sebastián">San Sebastián</option>
+        <option value="Santa Cruz de Tenerife">Santa Cruz de Tenerife</option>
+        <option value="segovia">Segovia</option>
+        <option value="sevilla">Sevilla</option>
+        <option value="soria">Soria</option>
+        <option value="tarragona">Tarragona</option>
+        <option value="teruel">Teruel</option>
+        <option value="toledo">Toledo</option>
+        <option value="València/Valencia">Valencia</option>
+        <option value="valladolid">Valladolid</option>
+        <option value="zamora">Zamora</option>
+        <option value="zaragoza">Zaragoza</option>
+      </select>
+
+      <button id="btn-aplicar-filtros">Aplicar filtros</button>
+    </div>
+
+    <div class="contenido">
+      <table id="tabla-rutas">
+        <thead>
+          <tr>
+            <th>Ruta</th>
+            <th>Etapa</th>
+            <th>Longitud (Km)</th>
+            <th>Provincia</th>
+            <th>CCAA</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- aquí se inyectan las filas -->
+        </tbody>
+      </table>
+
+      <div class="contenedor-mapa" id="mapa">
+        <img src="{{ url_for('static', filename='mapa_espana.png') }}" alt="Mapa" class="mapa-img">
+      </div>
+
+      <div class="previsualizacion" id="previsualizacion">
+        <div class="espacio-pdf">
+        <!-- Spinner de carga -->
+        <div id="spinner" class="spinner"></div>
+      <iframe id="visor-pdf" width="100%" height="100%" frameborder="0"></iframe>
+      </div>
+
+        <div class="controls">
+          <textarea
+            id="prompt-input"
+            class="descripcion-input"
+            {% if not personalizacion_habilitada %}
+            disabled
+            readonly
+            placeholder="La personalización de descaripciones no está configurada."
+            {% else %}
+            placeholder=" Personaliza las descripciones de las especies. Por ejemplo:
+    - Haz las descripciones con un tono más científico.
+    - Incluye en qué provincias se pueden ver las especies."
+            {% endif %}
+            maxlength="300"
+            rows="4"
+          ></textarea>
+          <button id="btn-generar" class="descripcion-btn" {% if not personalizacion_habilitada %}disabled title="La personalización de descaripciones no está configurada."{% endif %}>Generar</button>
+        </div>
+
+    <script>
+    // Caché simple para especies por ruta
+    const especiesCache = {};
+
+    function obtenerTaxonomiasSeleccionadas() {
+      return Array.from(
+        document.querySelectorAll('.dropdown-content input[type="checkbox"]:checked')
+      )
+      .map(cb => cb.value.trim().toLowerCase());
+    }
+
+    function limpiarCacheEspecies() {
+      Object.keys(especiesCache).forEach(k => delete especiesCache[k]);
+    }
+
+    document.querySelectorAll('.dropdown-content input[type="checkbox"]')
+      .forEach(cb => cb.addEventListener('change', limpiarCacheEspecies));
+    
+    document.getElementById('btn-aplicar-filtros')
+      .addEventListener('click', limpiarCacheEspecies);
+    
+    async function cargarEspecies(ID_Ruta) {
+      if (especiesCache[ID_Ruta]) {
+        return especiesCache[ID_Ruta];
+      }
+      const payload = {
+        id_ruta:    ID_Ruta,
+        taxonomias: obtenerTaxonomiasSeleccionadas()
+      };
+      const res = await fetch('/obtener_especies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        console.error('Error al obtener especies', await res.text());
+        return [];
+      }
+      const lista = await res.json();
+      console.log('📥 especies recibidas:', lista);
+      especiesCache[ID_Ruta] = lista;
+      return lista;
+    }
+      let especies = [];
+    
+      let _idRuta  ;
+      let _nombre ;
+      let _etapa    ;
+      let _longitud  ;
+      let _provincia ;
+      let _ccaa     ;
+
+    async function mostrarPrevisualizacion(tr) {
+      const spinner = document.getElementById('spinner');
+      // 0) Preparar: bloquear UI y mostrar spinner
+      document.body.classList.add('disabled');
+      spinner.style.display = 'block';
+
+      // 1) Ocultar el mapa y mostrar la previsualización
+      document.getElementById('mapa').style.display = 'none';
+      document.getElementById('previsualizacion').style.display = 'flex';
+
+      // 2) Extraer todos los datos de la fila
+      const idRuta    = tr.dataset.id;
+      const nombre    = tr.cells[0].textContent.trim();
+      const etapa     = tr.cells[1].textContent.trim();
+      const longitud  = tr.cells[2].textContent.trim();
+      const provincia = tr.cells[3].textContent.trim();
+      const ccaa      = tr.cells[4].textContent.trim();
+      _idRuta = idRuta;
+      _nombre = nombre;
+      _etapa = etapa;
+      _longitud = longitud;
+      _provincia = provincia;
+      _ccaa = ccaa;
+      
+      try {
+        // 3) Pedimos las especies
+        especies = await cargarEspecies(idRuta);
+      } catch (e) {
+        console.error('Error al cargar especies:', e);
+      }
+
+      // 4) Llamamos al endpoint pasando TODO
+      let resp;
+      try {
+        resp = await fetch('/generar_pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id_ruta:   idRuta,
+            nombre:    nombre,
+            etapa:     etapa,
+            longitud:  longitud,
+            provincia: provincia,
+            ccaa:      ccaa,
+            especies:  especies
+          })
+        });
+        if (!resp.ok) {
+          throw new Error(await resp.text());
+        }
+      } catch (e) {
+        console.error('Error generando PDF:', e);
+        // 7) Restaurar UI antes de salir
+        spinner.style.display = 'none';
+        document.body.classList.remove('disabled');
+        return;
+      }
+
+      // 5) Convertir a blob y mostrar en el iframe
+      const blob = await resp.blob();
+      document.getElementById('visor-pdf').src = URL.createObjectURL(blob);
+
+      // 6) Restaurar UI
+      spinner.style.display = 'none';
+      document.body.classList.remove('disabled');
+    }
+    
+      async function cargarRutas(provincia = '') {
+        // Construye la URL con query param
+        const url = '/obtener_rutas' + (provincia ? `?provincia=${encodeURIComponent(provincia)}` : '');
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const rutas = await resp.json();
+      
+        const tbody = document.querySelector('#tabla-rutas tbody');
+        tbody.innerHTML = '';
+      
+        rutas.forEach(r => {
+          const tr = document.createElement('tr');
+          tr.dataset.id = r.ID_Ruta;
+          tr.onclick = () => mostrarPrevisualizacion(tr);
+          
+          const fields = [r.Nombre_Ruta, r.Nombre_Etapa, r.Longitud, r.Provincia, r.CCAA];
+          fields.forEach(val => {
+              const td = document.createElement('td');
+              td.textContent = val;
+              tr.appendChild(td);
+          });
+
+          tbody.appendChild(tr);
+        });
+      }
+      
+      document.addEventListener('DOMContentLoaded', () => {
+        // Carga inicial sin filtros
+        cargarRutas();
+      
+        // Aplica filtros al botón
+        document.getElementById('btn-aplicar-filtros').addEventListener('click', () => {
+          const sel = document.getElementById('provincia-selector').value;
+          cargarRutas(sel);
+        });
+      });
+
+    document.getElementById('btn-generar').addEventListener('click', async function() {
+      if (this.disabled) return;
+      const prompt = document.getElementById('prompt-input').value.trim();
+      const spinner = document.getElementById('spinner');
+      const visor = document.getElementById('visor-pdf');
+
+      // 0) Preparar: bloquear UI y mostrar spinner
+      document.body.classList.add('disabled');
+      spinner.style.display = 'block';
+
+      // 1) Personalizar descripciones
+      let resp = await fetch('/personalizar_descripciones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ especies, prompt })
+      });
+      if (!resp.ok) {
+        console.error(await resp.text());
+        alert('Error al regenerar descripciones');
+        spinner.style.display = 'none';
+        document.body.classList.remove('disabled');
+        return;
+      }
+      const lista = await resp.json();
+
+      // 2) Generar PDF — ojo, usamos una variable distinta para no chocar con la anterior
+      let pdfResp;
+      try {
+        pdfResp = await fetch('/generar_pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id_ruta:   _idRuta,
+            nombre:    _nombre,
+            etapa:     _etapa,
+            longitud:  _longitud,
+            provincia: _provincia,
+            ccaa:      _ccaa,
+            especies:  lista
+          })
+        });
+        if (!pdfResp.ok) {
+          throw new Error(await pdfResp.text());
+        }
+      } catch (e) {
+        console.error('Error generando PDF:', e);
+        spinner.style.display = 'none';
+        document.body.classList.remove('disabled');
+        return;
+      }
+
+      // 3) Crear el blob y actualizar el iframe
+      const blob = await pdfResp.blob();
+
+      // 3.a) Revocar la URL anterior para liberar memoria y forzar recarga
+      if (window._lastPdfUrl) {
+        URL.revokeObjectURL(window._lastPdfUrl);
+      }
+
+      const newUrl = URL.createObjectURL(blob);
+      window._lastPdfUrl = newUrl;         // guardamos para poder revocarla la próxima vez
+      visor.src = newUrl;                  // asignamos la nueva
+
+      // 4) Restaurar UI
+      spinner.style.display = 'none';
+      document.body.classList.remove('disabled');
+    });
+    </script>
+  </body>
+</html>
