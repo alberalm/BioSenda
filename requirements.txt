@@ -1,5 +1,9 @@
-codecarbon
--r "./4. Interfaz/requirements.txt"
--r "./3. Finetuning/requirements.txt"
--r "./2. Basede datos/requirements.txt"
--r "./1. Obtención Y Procesado de Datos/requirements.txt"
+flask 
+pandas 
+openpyxl
+sqlalchemy 
+numpy 
+httpx
+pillow
+fpdf2 
+sentencepiece
