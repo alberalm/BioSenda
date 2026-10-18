@@ -11,3 +11,4 @@ cryptography
 uvicorn
 asgiref
 pymysql
+python-dotenv

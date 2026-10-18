@@ -16,8 +16,11 @@ import signal
 from asgiref.wsgi import WsgiToAsgi
 import ipaddress
 import sys
+from dotenv import load_dotenv
+
 try:
     from connections.db_connection import create_db_engine
+    load_dotenv()
 except Exception:
     print("No database connection defined, exiting...")
     exit(1)
