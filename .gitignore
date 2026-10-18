@@ -2,4 +2,10 @@
 **/gbif-observations-dwca.zip
 **/*_API_KEY.txt
 *.pyc
-4. Interfaz/connections/**.*
+__pycache__/
+.vscode/
+*.py[cod]
+.env
+.env.*
+!.env.example
+connections/llm_connection.py

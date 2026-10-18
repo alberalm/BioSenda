@@ -1,8 +1,7 @@
 from flask import Flask, render_template, send_file, request, jsonify
+from werkzeug.middleware.proxy_fix import ProxyFix
 import random
-import unicodedata
 import pandas as pd
-from sqlalchemy import create_engine
 import numpy as np
 import io
 from scripts.pdf_maker import PDF
@@ -11,27 +10,39 @@ import json
 import html
 import unicodedata
 import asyncio
+import os
+from scripts.prompts import TEXT2SQL_PROMPT, PERSONALIZE_DESCRIPTION_PROMPT
+import signal
+from asgiref.wsgi import WsgiToAsgi
+import ipaddress
+import sys
+try:
+    from connections.db_connection import create_db_engine
+except Exception:
+    print("No database connection defined, exiting...")
+    exit(1)
 try:
     from connections.llm_connection import send_description_prompt, send_text2sql_prompt
-except:
+except Exception:
     print("No models defined, personalising descriptions is not available and will not work.")
-from scripts.prompts import TEXT2SQL_PROMPT, PERSONALIZE_DESCRIPTION_PROMPT
+    def send_description_prompt(prompt):
+        return prompt
+    def send_text2sql_prompt(prompt):
+        return "SELECT Null"
 
+engine = create_db_engine()
+
+def handle_sigterm(signum, frame):
+    flask_app.logger.info("SIGTERM received, shutting down.")
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, handle_sigterm)
 
 especies_cache = {}
-app = Flask(__name__)
-conn_str = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=tcp:sql-server-mamba.database.windows.net,1433;"
-    "DATABASE=sql-db-mamba;"
-    "UID=sql-admin;"
-    "PWD=serverpwd1!;"
-    "Encrypt=yes;"
-    "TrustServerCertificate=no;"
-    "Connection Timeout=30;"
-)
-engine = create_engine(f"mssql+pyodbc:///?odbc_connect={conn_str}")
+flask_app = Flask(__name__)
 
+# If behind a proxy (Cloud Run), trust X-Forwarded headers:
+flask_app.wsgi_app = ProxyFix(flask_app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 def limpiar_texto(texto: str) -> str:
     if not texto:
@@ -46,49 +57,50 @@ def limpiar_texto(texto: str) -> str:
     return texto.strip()
 
 
-def personalizar_especie(especie, descripcion_cientifica, query, prompt):
+async def personalizar_especie(especie, descripcion_cientifica, query, prompt, i):
     null_str = """[\n  {\n    "": null\n  }\n]"""
     # Realizar la consulta
     try:
-        if "SELECT NULL" in query.lower():
+        if "select null" in query.lower():
             sql = null_str
         elif "<idtaxon>" in query:
-            df_sql = pd.read_sql_query(query.replace("<idtaxon>", especie["idtaxon"]))
+            df_sql = pd.read_sql_query(query.replace("<idtaxon>", str(especie["idtaxon"])), engine)
             sql = json.dumps(df_sql.to_dict(orient='records'), indent=2)
         else:
-            df_sql = pd.read_sql_query(query)
+            df_sql = pd.read_sql_query(query, engine)
             sql = json.dumps(df_sql.to_dict(orient='records'), indent=2)
-    except Exception:
+    except Exception as e:
+        print(f"Error parsing database output with idtaxon {especie['idtaxon']}: {e}")
         sql = null_str
-    return  send_description_prompt(
+    return await send_description_prompt(
         PERSONALIZE_DESCRIPTION_PROMPT.format(
             prompt=prompt,
             description_a_adaptar=especie["descripcion"],
             descripcion_cientifica=descripcion_cientifica,
             informacion_sql=sql
-        )
+        ), i
     )
-    
 
 
-@app.route('/')
+@flask_app.route('/')
 def index():
-    return render_template('principal.html.html')
+    return render_template('main.html')
 
 
-@app.route('/personalizar_descripciones', methods=['POST'])
-def personalizar_descripciones():
+@flask_app.route('/personalizar_descripciones', methods=['POST'])
+async def personalizar_descripciones():
     data = request.get_json(force=True) or {}
     prompt = data.get('prompt', '')
     especies  = data.get('especies', [])
 
     # Obtener la consulta SQL que complementa el prompt del usuario
-    text2sql_query = send_text2sql_prompt(TEXT2SQL_PROMPT.format(prompt=prompt))
+    text2sql_query = await send_text2sql_prompt(TEXT2SQL_PROMPT.format(prompt=prompt))
     # Cambiar la consulta para que solamente coja 30 filas
-    if 'SELECT DISTINCT' in text2sql_query:  # TOP debe ir despues de DISTINCT
-        text2sql_query = text2sql_query.replace('SELECT DISTINCT', 'SELECT DISTINCT TOP 30')
+    if text2sql_query.strip().endswith(';'):
+        text2sql_query = text2sql_query.replace(';', '\nLIMIT 30;')
     else:
-        text2sql_query = text2sql_query.replace('SELECT', 'SELECT TOP 30')
+        text2sql_query = text2sql_query.strip() + '\nLIMIT 30;'
+    print(f"Query generada:\n{text2sql_query}")
     # Construir el union_sql con los idtaxones
     union_sql = " UNION ALL ".join([f"SELECT {especie['idtaxon']} AS idtaxon" for especie in especies])
     # Hacer queries a la base de datos
@@ -105,38 +117,43 @@ def personalizar_descripciones():
     """
     sql_result = pd.read_sql_query(scientific_descriptions_query, engine)
     descriptions = dict(zip(sql_result['idtaxon'], sql_result['descripcion']))
-    new_descs = {
-        especie["idtaxon"]: personalizar_especie(especie, descriptions[especie["idtaxon"]], text2sql_query, prompt ) for especie in especies
+    tasks = {
+        especie["idtaxon"]: personalizar_especie(especie, descriptions[especie["idtaxon"]], text2sql_query, prompt, i)
+        for i, especie in enumerate(especies)
     }
+    # Hacer un await de todas las corrutinas
+    results = await asyncio.gather(*tasks.values())
+    # Asociar de nuevo los idtaxones
+    new_descs = dict(zip(tasks.keys(), results))
     for i in range(len(especies)):
         especies[i]["descripcion"] = new_descs[especies[i]["idtaxon"]].strip()
     
     return jsonify(especies)
 
 
-@app.route('/obtener_especies', methods=['POST'])
+@flask_app.route('/obtener_especies', methods=['POST'])
 def obtener_especies():
     data = request.get_json(force=True) or {}
     try:
         id_ruta = int(data.get('id_ruta', 1))
-    except:
+    except Exception:
         id_ruta = 1
     
     client_ip = request.remote_addr or '0.0.0.0'
 
-    ALL_GROUPS = [
+    all_groups = [
         "peces","mamiferos","hongos","plantas_vasculares",
         "plantas_no_vasculares","aves","anfibios","invertebrados","reptiles"
     ]
-    QUOTAS = {
+    quotas = {
         0:(3,3), 1:(12,2), 2:(7,2), 3:(5,2),
-        4:(4,2), 5:(4,2), 6:(4,1), 7:(3,2),
+        4:(5,2), 5:(4,2), 6:(4,1), 7:(3,2),
         8:(3,1), 9:(3,1)
     }
     raw_filters = data.get('taxonomias', [])
-    sel = [g for g in ALL_GROUPS if g in map(str.lower, raw_filters)]
+    sel = [g for g in all_groups if g in map(str.lower, raw_filters)]
     k = len(sel)
-    cuota_sel, cuota_rest = QUOTAS.get(k, QUOTAS[0])
+    cuota_sel, cuota_rest = quotas.get(k, quotas[0])
 
     sql_counts = """
         SELECT
@@ -144,13 +161,13 @@ def obtener_especies():
             LOWER(t.taxonomicgroup)         AS grupo,
             COUNT(DISTINCT(ce.cuadricula))  AS ocurrencias,
             COUNT(DISTINCT(i.photo_link))   AS imagenes
-        FROM dbo.CuadriculasRutas cr
-        JOIN dbo.CuadriculasEspecies ce
+        FROM CuadriculasRutas cr
+        JOIN CuadriculasEspecies ce
             ON cr.CUADRICULA = ce.cuadricula
-        JOIN dbo.Taxonomia t
+        JOIN Taxonomia t
             ON ce.idtaxon = t.taxonid
             AND t.nametype = 'Aceptado'
-        LEFT JOIN dbo.Imagenes i
+        LEFT JOIN Imagenes i
             ON i.taxonid = ce.idtaxon
         WHERE cr.ID_Ruta = {id_ruta}
         GROUP BY ce.idtaxon, LOWER(t.taxonomicgroup)
@@ -161,13 +178,14 @@ def obtener_especies():
     dfs = []
     for group in set(df_counts['grupo']):
         group_count = cuota_sel if group in sel else cuota_rest
-        group_df = df_counts[df_counts['grupo'] == group]
+        group_df = df_counts[df_counts['grupo'] == group].copy()
+        group_df['imagenes'] = group_df['imagenes'].astype(int)
         group_df_images = group_df[group_df['imagenes'] > 0]
         if len(group_df_images) > 0:
             n_images = min(len(group_df_images), group_count)
             try:
-                seed = n_images + sum(int(octet) << (8 * i) for i, octet in enumerate(reversed(client_ip.split('.'))))
-            except:
+                seed = n_images + int(ipaddress.ip_address(client_ip))
+            except Exception:
                 seed = n_images
             dfs.append(group_df_images.sample(
                 n=n_images,
@@ -179,16 +197,18 @@ def obtener_especies():
                 group_df_no_images = group_df[group_df['imagenes'] == 0]
                 if len(group_df_no_images) > 0:
                     try:
-                        seed = remaining + sum(int(octet) << (8 * i) for i, octet in enumerate(reversed(client_ip.split('.'))))
-                    except:
+                        seed = remaining + int(ipaddress.ip_address(client_ip))
+                    except Exception:
                         seed = remaining
                     dfs.append(group_df_no_images.sample(
                         n=min(len(group_df_no_images), remaining),
                         random_state=seed,
                         weights=group_df_no_images['ocurrencias'].tolist()
                     ))
-
-    rng = random.Random(id_ruta + sum(int(octet) << (8 * i) for i, octet in enumerate(reversed(client_ip.split('.')))))
+    try:
+        rng = random.Random(id_ruta + int(ipaddress.ip_address(client_ip)))
+    except Exception:
+        rng = random.Random(id_ruta)
     joined_df = pd.concat(dfs)
     selected_ids = joined_df['idtaxon']
     selected_images = joined_df['imagenes'].apply(lambda x: rng.randint(0, x-1) if x > 1 else 0)
@@ -210,7 +230,7 @@ def obtener_especies():
             PARTITION BY taxonid
             ORDER BY photo_link
             ) AS rn
-        FROM dbo.Imagenes
+        FROM Imagenes
         )
         SELECT
             de.idtaxon,
@@ -226,17 +246,17 @@ def obtener_especies():
             t.conservationstatus,
             ni.photo_link,
             ni.license_holder
-        FROM dbo.DescripcionesEspecies de
+        FROM DescripcionesEspecies de
         JOIN (
             {union_sql}
         ) AS w
             ON de.idtaxon = w.idtaxon
 
-        JOIN dbo.Taxonomia t
+        JOIN Taxonomia t
             ON de.idtaxon = t.taxonid
             AND t.nametype = 'Aceptado'
 
-        LEFT JOIN dbo.NombresEspecies ne
+        LEFT JOIN NombresEspecies ne
             ON de.idtaxon   = ne.idtaxon
             AND ne.idioma    = 'Castellano'
             AND ne.espreferente = 1
@@ -249,16 +269,14 @@ def obtener_especies():
 
     df_details = pd.read_sql_query(sql_details.format(union_sql=union_sql), engine)
     
-    df_details = (
-        df_details.replace({np.nan: None})
-    )
+    df_details = df_details.replace({np.nan: None})
     especies = df_details.to_dict(orient='records')
 
     return jsonify(especies)
 
 
-@app.route('/generar_pdf', methods=['POST'])
-def generar_pdf():
+@flask_app.route('/generar_pdf', methods=['POST'])
+async def generar_pdf():
     """
     Funcion que se encarga de generar el PDF a partir de la ruta seleccionada
     """
@@ -283,14 +301,14 @@ def generar_pdf():
         id_ruta       = id_ruta
     )
 
-    asyncio.run(pdf.create_pdf())
+    await pdf.create_pdf()
     pdf_bytes = bytes(pdf.output())
     buf = io.BytesIO(pdf_bytes)
     buf.seek(0)
     return send_file(buf, mimetype='application/pdf', as_attachment=False)
 
 
-@app.route('/obtener_rutas', methods=['GET'])
+@flask_app.route('/obtener_rutas', methods=['GET'])
 def obtener_rutas():
     """
     Obtiene todas las rutas de la base de datos y filtra por provincia si se proporciona
@@ -299,9 +317,9 @@ def obtener_rutas():
 
     try:
         # 1) Lee TODAS las rutas
-        df_rutas = pd.read_sql(
+        df_rutas = pd.read_sql_query(
             "SELECT ID_Ruta, Nombre_Ruta, Nombre_Etapa, ROUND(Longitud, 2) AS Longitud, CCAA, Provincia FROM Rutas",
-            con=engine
+            engine
         )
         # 2) Normaliza NaN a None para el JSON
         df_rutas = df_rutas.replace({np.nan: "-"})
@@ -320,9 +338,13 @@ def obtener_rutas():
         return jsonify(rutas)
 
     except Exception as e:
-        app.logger.exception("Error en obtener_rutas:")
+        flask_app.logger.exception("Error en obtener_rutas:")
         return jsonify({'error': str(e)}), 500
 
 
-if __name__ == '__main__':
-    app.run(debug=True)
+# Convertir la aplicacion de Flask en asincrona para que soporte llamadas concurrentes
+app = WsgiToAsgi(flask_app)
+
+# Para local, se usa la aplicacion de Flask
+if __name__ == "__main__":
+    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=False)

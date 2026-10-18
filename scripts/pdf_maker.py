@@ -65,7 +65,7 @@ class PDF(FPDF):
         if url_imagen is None:
             return None
         try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(15.0)) as client:
                 response = await client.get(url_imagen)
                 response.raise_for_status()
                 img = Image.open(BytesIO(response.content))
@@ -219,7 +219,7 @@ class PDF(FPDF):
         except:
             self.set_xy(10, imagen_y)
             self.set_font("Helvetica", "I", 12)
-            self.cell(0, 10, "(Imagen no disponible)", ew_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            self.cell(0, 10, "(Imagen no disponible)", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
         # --- Datos bonitos en dos cajitas iguales, con íconos y texto alineado y wrap
         self.set_y(imagen_y + alto_img + 15)
@@ -282,6 +282,13 @@ class PDF(FPDF):
 
 
     def add_especie(self, nombre_cientifico, nombre_comun, descripcion, fotografia, autor, isinvasive, conservationstatus):
+        nombre_comun = nombre_comun or ""
+        nombre_cientifico = nombre_cientifico or ""
+        descripcion = descripcion or ""
+        autor = autor or ""
+        isinvasive = isinvasive or ""
+        conservationstatus = conservationstatus or ""
+
         # Título con nombre común y nombre científico
         self.set_font("Helvetica", "B", 13)
 
@@ -329,7 +336,7 @@ class PDF(FPDF):
         self.cell(self.get_string_width(status_label), diam, status_label, new_x=XPos.LMARGIN, new_y=YPos.TOP)
 
         # Si es invasora, mostrar advertencia justo debajo del nombre
-        if isinvasive.strip().lower() == "invasora":
+        if isinvasive and isinvasive.strip().lower() == "invasora":
             # Parámetros del triángulo
             tri_size = 5  # tamaño del triángulo
 
@@ -378,7 +385,7 @@ class PDF(FPDF):
         # Mueve el cursor al lado derecho de la imagen
         self.set_xy(x_img + img_size + 5, y_img)
         self.set_font("Helvetica", "", 11)
-        self.multi_cell(0, 5, descripcion)
+        self.multi_cell(0, 5, descripcion.encode('latin-1', errors='ignore').decode('latin-1'))
 
         # Volver a abajo del bloque
         self.set_y(max(self.get_y(), y_img + img_size))
@@ -387,7 +394,8 @@ class PDF(FPDF):
         self.set_xy(x_img, y_img + img_size + 0.5)  # 0.5 mm de separación
         self.set_font("Helvetica", "I", 9)
         if fotografia is not None:
-            self.cell(0, 6, f"Créditos: {autor}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            # Reemplazar caracteres no permitidos
+            self.cell(0, 6, f"Créditos: {autor.encode('latin-1', 'ignore').decode('latin-1')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         else:
             self.cell(0, 6, "", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
