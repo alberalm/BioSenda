@@ -1,5 +1,41 @@
 import os
+import asyncio
+import weakref
 import httpx
+
+# Gestión de semáforos por bucle de eventos para soportar ASGI / multihilo sin conflictos
+_semaphores: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+_custom_semaphore: asyncio.Semaphore | None = None
+
+
+def set_llm_semaphore(semaphore: asyncio.Semaphore | None) -> None:
+    """Permite configurar un semáforo explícito para pruebas o configuraciones personalizadas."""
+    global _custom_semaphore
+    _custom_semaphore = semaphore
+
+
+def get_llm_semaphore() -> asyncio.Semaphore:
+    """
+    Devuelve el semáforo para limitar la concurrencia de llamadas al LLM.
+    Se vincula al bucle de eventos activo para evitar errores entre diferentes hilos o bucles.
+    """
+    global _custom_semaphore
+    if _custom_semaphore is not None:
+        return _custom_semaphore
+
+    try:
+        concurrency = int(os.getenv("LLM_MAX_CONCURRENCY", "2"))
+    except (ValueError, TypeError):
+        concurrency = 2
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.Semaphore(concurrency)
+
+    if loop not in _semaphores:
+        _semaphores[loop] = asyncio.Semaphore(concurrency)
+    return _semaphores[loop]
 
 
 def personalizacion_habilitada() -> bool:
@@ -9,7 +45,7 @@ def personalizacion_habilitada() -> bool:
     """
     provider = os.getenv("LLM_PROVIDER", "").strip().lower()
     if provider == "api":
-        return bool(os.getenv("LLM_BASE_URL") and os.getenv("LLM_API_KEY"))
+        return bool(os.getenv("LLM_BASE_URL"))
     elif provider == "koboldcpp":
         return bool(os.getenv("KOBOLD_DESC_URL") or os.getenv("KOBOLD_SQL_URL"))
     return False
@@ -18,39 +54,41 @@ def personalizacion_habilitada() -> bool:
 async def _mandar_mensaje_api(messages: list) -> str:
     """
     Plantilla para llamadas a APIs compatibles con chat/completions
-    (Azure OpenAI, OpenAI, Google Gemini, etc.).
+    (Azure OpenAI, OpenAI, Google Gemini, etc.), protegida con un semáforo
+    para limitar la concurrencia y mitigar errores 429.
     """
     base_url = os.getenv("LLM_BASE_URL", "").rstrip("/")
-    api_key = os.getenv("LLM_API_KEY", "")
-    model = os.getenv("LLM_MODEL", "gpt-4.1")
+    api_key = os.getenv("LLM_API_KEY", "").strip()
+    model = os.getenv("LLM_MODEL", "").strip()
 
     if "/chat/completions" in base_url:
         url = base_url
     else:
         url = f"{base_url}/chat/completions"
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "api-key": api_key,
-        "Content-Type": "application/json"
-    }
+    headers = { "Content-Type": "application/json" }
+
+    if api_key:
+        headers["api-key"] = api_key
+        headers["Authorization"] = f"Bearer {api_key}"
 
     payload = {
         "model": model,
         "messages": messages
     }
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
-        response = await client.post(url, headers=headers, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"].strip()
+    async with get_llm_semaphore():
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"].strip()
 
 
 async def _mandar_mensaje_kobold(url: str, prompt: str, stop_sequence: str) -> str:
     """
     Plantilla para llamadas a instancias locales de KoboldCpp
-    utilizando modelos cuantizados (formato GGUF).
+    utilizando modelos cuantizados (formato GGUF), protegida por un semáforo.
     """
     endpoint = url if "/api/v1/generate" in url else f"{url.rstrip('/')}/api/v1/generate"
     headers = {
@@ -63,12 +101,13 @@ async def _mandar_mensaje_kobold(url: str, prompt: str, stop_sequence: str) -> s
         "max_length": 350
     }
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
-        response = await client.post(endpoint, headers=headers, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        results = data.get("results", [{}])
-        return results[0].get("text", "").strip() if results else ""
+    async with get_llm_semaphore():
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+            response = await client.post(endpoint, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            results = data.get("results", [{}])
+            return results[0].get("text", "").strip() if results else ""
 
 
 PREFIJO_PROMPT_DESCRIPCIONES = """

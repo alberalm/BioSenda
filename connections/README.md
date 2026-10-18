@@ -120,3 +120,14 @@ def send_text2sql_prompt(prompt: str) -> str:
 - Descarga las versiones cuantizadas de los modelos de [descripciones](https://huggingface.co/alberalm/salamandra-7b-instruct-description-Q8_0-GGUF) y [Text2SQL](https://huggingface.co/alberalm/salamandra-7b-instruct-text2sql-Q8_0-GGUF).
 - Ejecuta Kobold en los puertos 5001 y 5002 para los modelos de descripciones y Text2SQL, respectivamente. Esto se puede hacer con un comando similar a `koboldcpp.exe description_model.gguf --port 5001`. Opcionalmente, se pueden personalizar el número de hilos con `--threads`, forzar la carga en CPU con `--usecpu` y multitd de otros parámetros que se pueden analizar en la Wiki de KoboldCpp.
 - Ejecutar la aplicación de manera normal y utilizar la personalización de descripciones.
+
+
+
+### Control de concurrencia (Semáforo para LLMs)
+
+---
+
+Las llamadas concurrentes al LLM están limitadas mediante un **semáforo asíncrono** (`asyncio.Semaphore`) para evitar errores 429 (*Too Many Requests*):
+
+- `LLM_MAX_CONCURRENCY`: Límite de peticiones simultáneas a la API (por defecto: `2`). Controla cuántas solicitudes concurrentes se envían a la vez durante la personalización de especies.
+

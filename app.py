@@ -65,14 +65,21 @@ async def personalizar_especie(especie, descripcion_cientifica, query, prompt, i
     except Exception as e:
         print(f"Error parsing database output with idtaxon {especie['idtaxon']}: {e}")
         sql = null_str
-    return await send_description_prompt(
-        PERSONALIZE_DESCRIPTION_PROMPT.format(
-            prompt=prompt,
-            description_a_adaptar=especie["descripcion"],
-            descripcion_cientifica=descripcion_cientifica,
-            informacion_sql=sql
-        ), i
-    )
+    try:
+        return await send_description_prompt(
+            PERSONALIZE_DESCRIPTION_PROMPT.format(
+                prompt=prompt,
+                description_a_adaptar=especie["descripcion"],
+                descripcion_cientifica=descripcion_cientifica,
+                informacion_sql=sql
+            ), i
+        )
+    except Exception as e:
+        flask_app.logger.warning(
+            f"Error personalizando especie {especie.get('idtaxon', '?')}: {e}. "
+            "Manteniendo descripción original."
+        )
+        return especie.get("descripcion", "")
 
 
 @flask_app.route('/')
@@ -90,7 +97,11 @@ async def personalizar_descripciones():
     especies  = data.get('especies', [])
 
     # Obtener la consulta SQL que complementa el prompt del usuario
-    text2sql_query = await send_text2sql_prompt(TEXT2SQL_PROMPT.format(prompt=prompt))
+    try:
+        text2sql_query = await send_text2sql_prompt(TEXT2SQL_PROMPT.format(prompt=prompt))
+    except Exception as e:
+        flask_app.logger.warning(f"Error al generar consulta SQL con LLM: {e}. Usando consulta por defecto.")
+        text2sql_query = "SELECT Null;"
     # Cambiar la consulta para que solamente coja 30 filas
     if text2sql_query.strip().endswith(';'):
         text2sql_query = text2sql_query.replace(';', '\nLIMIT 30;')
